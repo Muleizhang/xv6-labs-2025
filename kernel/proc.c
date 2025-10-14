@@ -276,6 +276,10 @@ kfork(void)
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
+  // copy the interpose mask
+  np->interpose_mask = p->interpose_mask;
+  strncpy(np->allowed_path, p->allowed_path, MAXPATH);
+
   // Cause fork to return 0 in the child.
   np->trapframe->a0 = 0;
 
