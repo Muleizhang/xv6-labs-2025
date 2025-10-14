@@ -1,0 +1,5 @@
+# 自动连接到 QEMU GDB 服务器，端口号要设对
+target remote localhost:26000
+
+# 启用 TUI 模式，提供源码、汇编、寄存器布局的图形界面
+tui enable
