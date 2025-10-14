@@ -57,9 +57,51 @@ main(int argc, char *argv[])
   exit(0);
 }
 
+/*
+i: print the next 4 bytes of the data as a 32-bit integer, in decimal.
+p: print the next 8 bytes of the data as a 64-bit integer, in hex.
+h: print the next 2 bytes of the data as a 16-bit integer, in decimal.
+c: print the next 1 byte of the data as an 8-bit ASCII character.
+s: the next 8 bytes of the data contain a 64-bit pointer to a C string; print the string.
+S: the rest of the data contains the bytes of a null-terminated C string; print the string.
+*/
+
 void
 memdump(char *fmt, char *data)
 {
   // Your code here.
 
+  int fmt_len = strlen(fmt);
+  // printf("%d\n",fmt_len);
+  for(int i = 0; i < fmt_len; i++){
+    char f = fmt[i];
+    if(f == 'i'){
+      int *p = (int *)data;
+      printf("%d\n",*p);
+      data += 4;
+    }else if(f == 'p'){
+      unsigned long *p = (unsigned long *)data;
+      printf("%lx\n",*p);
+      data += 8;
+    }else if(f == 'h'){
+      short *p = (short *)data;
+      printf("%d\n",*p);
+      data += 2;
+    }else if(f == 'c'){
+      char *p = (char *)data;
+      printf("%c\n",*p);
+      data += 1;
+    }else if(f == 's'){
+      char **p = (char **)data;
+      printf("%s\n",*p);
+      data += 8;
+    }else if(f == 'S'){
+      char *p = (char *)data;
+      printf("%s\n",p);
+      break;
+    }else{
+      printf("Unknown format character: %c\n", f);
+      break;
+    }
+  }
 }
