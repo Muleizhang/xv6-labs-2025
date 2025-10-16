@@ -132,6 +132,17 @@ found:
     return 0;
   }
 
+  // Allocate a usyscall page
+  #ifdef LAB_PGTBL
+  if ((p->usyscall_page = (struct usyscall *)kalloc()) == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+  // write pid to user readable usyscall_page->pid
+  p->usyscall_page->pid = p->pid;
+  #endif
+
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -158,6 +169,13 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+
+  #ifdef LAB_PGTBL
+  if(p->usyscall_page)
+    kfree((void*)p->usyscall_page);
+  p->usyscall_page = 0;
+  #endif
+
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -202,6 +220,17 @@ proc_pagetable(struct proc *p)
     return 0;
   }
 
+  // map the usyscall just below the trapframe page, for
+  // ugetpid or other syscall that needs to be fast.
+  #ifdef LAB_PGTBL
+  if(mappages(pagetable, USYSCALL, PGSIZE,
+              (uint64)(p->usyscall_page), PTE_R | PTE_U) < 0){
+    uvmunmap(pagetable, TRAMPOLINE, 2, 0);
+    uvmfree(pagetable, 0);
+    return 0;
+  }
+  #endif
+
   return pagetable;
 }
 
@@ -212,6 +241,7 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
+  uvmunmap(pagetable, USYSCALL, 1, 0);
   uvmfree(pagetable, sz);
 }
 
@@ -272,6 +302,23 @@ kfork(void)
     return -1;
   }
   np->sz = p->sz;
+
+  #ifdef LAB_PGTBL
+  {
+      pte_t *pte;
+      // 1. 找到子进程页表中 USYSCALL 对应的 PTE (不需要分配)
+      if((pte = walk(np->pagetable, USYSCALL, 0)) == 0)
+          panic("kfork: usyscall walk");
+
+      // uvmcopy 复制了父进程的 usyscall 映射。我们现在修改它，
+      // 使其指向 np->usyscall_page (子进程的物理页)。
+      // np->usyscall_page 已在 allocproc 中分配并初始化为 np->pid。
+      
+      // 2. 更新 PTE 的物理地址部分
+      // 保留原始 PTE 的标志位 (PTE_R | PTE_U | PTE_V)
+      *pte = PA2PTE((uint64)np->usyscall_page) | PTE_FLAGS(*pte);
+  }
+  #endif
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);

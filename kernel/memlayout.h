@@ -65,6 +65,9 @@
 #ifdef LAB_PGTBL
 #define USYSCALL (TRAPFRAME - PGSIZE)
 
+// set this to the highest user address that
+// is supported by the kernel.
+// which is the start of the USYSCALL page.
 struct usyscall {
   int pid;  // Process ID
 };
