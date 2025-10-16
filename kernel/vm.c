@@ -142,9 +142,63 @@ walkaddr(pagetable_t pagetable, uint64 va)
 
 
 #if defined(LAB_PGTBL) || defined(SOL_MMAP) || defined(SOL_COW)
+
+#define PTE_G 1L<<2
+#define PTE_A 1L<<6
+#define PTE_D 1L<<7
+
+void
+vmprint_recursive(pagetable_t pagetable, int level, uint64 va_start) {
+  for (int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    uint64 new_start = va_start + (i << ((level+1) * 16));
+    
+    if (pte & PTE_V){
+      for (int k = 0; k < 3 - level; k++) {
+        printf(" ..");
+      }
+      /*
+      for (int i = 63; i >= 0; i--) {
+        (new_start & (1 << i))? printf("1") : printf("0");
+      }
+      */
+
+      printf(" %p: pte %p pa %p", (uint64*)(new_start), (uint64*)pte, (uint64*)PTE2PA(pte));
+      if (PTE_LEAF(pte)) {
+        printf("   ");
+        printf((pte & PTE_V) ? "V" : "-");
+        printf((pte & PTE_R) ? "R" : "-");
+        printf((pte & PTE_X) ? "X" : "-");
+        printf((pte & PTE_W) ? "W" : "-");
+        printf((pte & PTE_U) ? "U" : "-");
+        printf((pte & PTE_G) ? "G" : "-");
+        printf((pte & PTE_A) ? "A" : "-");
+        printf((pte & PTE_D) ? "D" : "-");
+        printf("\n");
+      } else {
+        for (int i = 0;i < level;i++) {
+          printf("   ");
+        }
+        printf("   ");
+        printf((pte & PTE_V) ? "V" : "-");
+        printf((pte & PTE_R) ? "R" : "-");
+        printf((pte & PTE_X) ? "X" : "-");
+        printf((pte & PTE_W) ? "W" : "-");
+        printf((pte & PTE_U) ? "U" : "-");
+        printf((pte & PTE_G) ? "G" : "-");
+        printf((pte & PTE_A) ? "A" : "-");
+        printf((pte & PTE_D) ? "D" : "-");
+        printf("\n");        
+        vmprint_recursive((uint64*)PTE2PA(pte), level - 1, new_start);
+      }
+    }
+  }
+}
+
 void
 vmprint(pagetable_t pagetable) {
-  // your code here
+  printf("page table %p\n",pagetable);
+  vmprint_recursive(pagetable, 2, 0);
 }
 #endif
 
