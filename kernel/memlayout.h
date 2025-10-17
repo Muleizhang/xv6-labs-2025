@@ -29,6 +29,10 @@
 #define E1000_IRQ 33
 #endif
 
+#ifdef LAB_PGTBL
+#define SUPER_PAGE_START (KERNBASE + 100*1024*1024)
+#endif
+
 // qemu puts platform-level interrupt controller (PLIC) here.
 #define PLIC 0x0c000000L
 #define PLIC_PRIORITY (PLIC + 0x0)
