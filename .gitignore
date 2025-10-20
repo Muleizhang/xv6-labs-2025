@@ -27,3 +27,7 @@ barrier
 *.pcap
 TAGS
 
+.cache
+.vscode
+compile_commands.json
+fs.img.bk
