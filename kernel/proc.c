@@ -294,7 +294,6 @@ kfork(void)
   if((np = allocproc()) == 0){
     return -1;
   }
-  printf("a\n");
 
   // Copy user memory from parent to child.
   if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
@@ -302,7 +301,6 @@ kfork(void)
     release(&np->lock);
     return -1;
   }
-  printf("a\n");
 
   np->sz = p->sz;
 

@@ -2009,9 +2009,13 @@ sbrkbasic(char *s)
     printf("fork failed in sbrkbasic\n");
     exit(1);
   }
+  printf("forked\n");
+
   if(pid == 0){
     a = sbrk(TOOMUCH);
     if(a == (char*)SBRK_ERROR){
+        printf("ERR(ok)");
+
       // it's OK if this fails.
       exit(0);
     }
@@ -2031,10 +2035,12 @@ sbrkbasic(char *s)
     printf("%s: too much memory allocated!\n", s);
     exit(1);
   }
+  printf("waited\n");
 
   // can one sbrk() less than a page?
   a = sbrk(0);
   for(i = 0; i < 5000; i++){
+    //printf("%d\n",i);
     b = sbrk(1);
     if(b != a){
       printf("%s: sbrk test failed %d %p %p\n", s, i, a, b);
