@@ -139,6 +139,7 @@ panic(char *s)
   panicking = 1;
   printf("panic: ");
   printf("%s\n", s);
+  backtrace();
   panicked = 1; // freeze uart output from other CPUs
   for(;;)
     ;
@@ -148,4 +149,27 @@ void
 printfinit(void)
 {
   initlock(&pr.lock, "pr");
+}
+
+
+void backtrace(void)
+{
+uint64 fp = r_fp();
+  uint64 stack_base = PGROUNDDOWN(fp);
+
+  printf("backtrace:\n");
+
+  // 遍历栈帧。从当前的 fp 开始，并持续到达到栈页面的底部
+  // 帧指针 fp 总是指向 (RA 地址 + 8)
+  while(fp != 0 && fp >= stack_base){
+    // 1. Return Address (RA) 存储在 fp - 8 的位置
+    uint64 ra = *(uint64*)(fp - 8); 
+    
+    // 2. 打印返回地址
+    printf("%p\n", (void *)ra);
+
+    // 3. Saved Frame Pointer (SFP) 存储在 fp - 16 的位置
+    // SFP 指向调用者的栈帧，用于向上传递
+    fp = *(uint64*)(fp - 16);
+  }
 }

@@ -1,0 +1,95 @@
+1. Which registers contain arguments to functions? For example, which register holds 13 in main's call to printf?
+
+a0 a1 a2
+line:
+  2c:	4635                	li	a2,13
+
+2. Where is the call to function f in the assembly code for main? Where is the call to g? (Hint: the compiler may inline functions.)
+
+inline and calculate already in line:
+  2e:	45b1                	li	a1,12
+
+3. At what address is the function printf located?
+
+73e
+in main:
+```
+  38:	706000ef          	jal	73e <printf>
+```
+in definition of printf:
+
+```asm
+void
+printf(const char *fmt, ...)
+{
+ 73e:	711d                	addi	sp,sp,-96
+...
+```
+
+4. What value is in the register ra just after the jalr to printf in main?
+
+jal: jump and link
+
+'jal imm' would do 2 operations:
+  (1) Store the next addr (e.g. just next to 'jal xx') to reg ra (return address).
+  (2) Jump to the addr specified in imm.
+
+
+```asm
+  38:	706000ef          	jal	73e <printf>
+  exit(0);
+  3c:	4501                	li	a0,0
+```
+so ra = 0x3c
+
+5. Run the following code.
+
+	unsigned int i = 0x00646c72;
+	printf("H%x Wo%s", 57616, (char *) &i);
+      
+What is the output? Here's an ASCII table that maps bytes to characters.
+The output depends on that fact that the RISC-V is little-endian. If the RISC-V were instead big-endian what would you set i to in order to yield the same output? Would you need to change 57616 to a different value?
+
+Here's a description of little- and big-endian and a more whimsical description.
+
+```
+HE110 World
+```
+
+dec: 57616
+dex: E110
+
+M (MSB, Most Significant Byte)
+$I_1$
+$I_2$
+L (LSB, Least Significant Byte)
+
+0x00646c72
+M        I1       I2       L
+00000000 01100100 01101100 01110010
+b7    b0 b7    b0 b7    b0 b7    b0
+\0       d        l        r
+
+r = 72
+l = 6c
+d = 64
+
+
+If big end:
+
+i = 01001110001101100010011000000000
+  = 4E362600
+
+57616 no need to change
+
+6. In the following code, what is going to be printed after 'y='? (note: the answer is not a specific value.) Why does this happen?
+
+	printf("x=%d y=%d", 3);
+
+user/call.c:18:19: error: format '%d' expects a matching 'int' argument [-Werror=format=]
+   18 |   printf("x=%d y=%d", 3);
+      |                  ~^
+      |                   |
+      |                   int
+
+kinda UB, gcc avoid it. While if not checked by compiler, it would be the int in a2 register, which is junk
