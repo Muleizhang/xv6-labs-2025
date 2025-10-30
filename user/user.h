@@ -24,6 +24,8 @@ int getpid(void);
 char* sys_sbrk(int,int);
 int pause(int);
 int uptime(void);
+void sigalarm(int interval, void *handler);
+void sigreturn();
 
 // ulib.c
 int stat(const char*, struct stat*);

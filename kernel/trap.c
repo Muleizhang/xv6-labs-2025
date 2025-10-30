@@ -81,8 +81,18 @@ usertrap(void)
     kexit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  if(which_dev == 2){
+    p->currticks++;
+    // 1. 不在使用中              2. 不是空的alarm                       3. ticks次数时间到了
+    if (p->using_handler == 0 && (p->interval !=0 || p->handler !=0) && p->currticks == p->interval) {
+      p->using_handler = 1;
+      p->currticks = 0;
+      p->trapframe_saved = (struct trapframe*)kalloc();
+      memmove(p->trapframe_saved, p->trapframe, sizeof(struct trapframe));
+      p->trapframe->epc = p->handler;
+    }
     yield();
+  }
 
   prepare_return();
 

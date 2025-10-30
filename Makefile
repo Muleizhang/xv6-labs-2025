@@ -30,7 +30,8 @@ OBJS = \
   $K/sysfile.o \
   $K/kernelvec.o \
   $K/plic.o \
-  $K/virtio_disk.o
+  $K/virtio_disk.o \
+  $K/alarm.o
 
 OBJS_KCSAN = \
   $K/start.o \
@@ -222,7 +223,8 @@ endif
 ifeq ($(LAB),traps)
 UPROGS += \
 	$U/_call\
-	$U/_bttest
+	$U/_bttest\
+	$U/_alarmtest
 endif
 
 ifeq ($(LAB),lazy)
