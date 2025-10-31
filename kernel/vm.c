@@ -299,7 +299,6 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -308,11 +307,15 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       continue;   // physical page hasn't been allocated
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    if (*pte & PTE_W) {
+      flags = flags | PTE_C;
+      flags &= ~PTE_W;
+      *pte = PA2PTE(pa) | flags;
+    }
+    // increase count
+    increase_ref(pa);
+
+    if(mappages(new, i, PGSIZE, pa, flags) != 0){
       goto err;
     }
   }
@@ -336,6 +339,8 @@ uvmclear(pagetable_t pagetable, uint64 va)
   *pte &= ~PTE_U;
 }
 
+// kernel/vm.c
+
 // Copy from kernel to user.
 // Copy len bytes from src to virtual address dstva in a given page table.
 // Return 0 on success, -1 on error.
@@ -347,26 +352,51 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
-    if(va0 >= MAXVA)
-      return -1;
-  
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0) {
-      if((pa0 = vmfault(pagetable, va0, 0)) == 0) {
-        return -1;
+    
+    // 1. 查找 PTE
+    pte = walk(pagetable, va0, 0);
+
+    // 2. 检查页面是否有效
+    if(pte == 0 || (*pte & PTE_V) == 0)
+      return -1; // 地址未映射
+
+    // 3. 核心 COW 逻辑
+    if((*pte & PTE_C) != 0) {
+      // 这是一个 COW 页面，我们必须复制它
+      uint64 pa = PTE2PA(*pte);
+      char *mem;
+      
+      if (get_ref(pa) == 1) {
+        // 只有一个引用，无需复制，直接设为可写
+        *pte = (*pte | PTE_W) & ~PTE_C;
+      } else {
+        // 引用 > 1，分配新页面并复制
+        if((mem = kalloc()) == 0)
+          return -1;
+        memmove(mem, (void*)pa, PGSIZE);
+        uint flags = (PTE_FLAGS(*pte) | PTE_W) & ~PTE_C;
+        *pte = PA2PTE((uint64)mem) | flags; // PTE 指向新页面
+        kfree((void*)pa); // 减少旧页面的引用
       }
+    } else if((*pte & PTE_W) == 0) {
+      // 4. 不是 COW 页面，但也是只读的 -> 错误
+      // (例如，试图写入代码段)
+      return -1;
     }
 
-    pte = walk(pagetable, va0, 0);
-    // forbid copyout over read-only user text pages.
-    if((*pte & PTE_W) == 0)
-      return -1;
-      
+    // 5. 到这里，PTE 保证指向一个可写的物理页面
+    //    (PTE 可能在上一步中被修改了，所以我们重新获取 pa)
+    pa0 = PTE2PA(*pte);
+
+    // 6. 计算要在此页面中复制的字节数
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
+    
+    // 7. 执行复制
     memmove((void *)(pa0 + (dstva - va0)), src, n);
 
+    // 8. 更新循环变量
     len -= n;
     src += n;
     dstva = va0 + PGSIZE;
@@ -386,9 +416,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
     va0 = PGROUNDDOWN(srcva);
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0) {
-      if((pa0 = vmfault(pagetable, va0, 0)) == 0) {
-        return -1;
-      }
+      return -1;
     }
     n = PGSIZE - (srcva - va0);
     if(n > len)
@@ -444,7 +472,7 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
-
+/*
 // allocate and map user memory if process is referencing a page
 // that was lazily allocated in sys_sbrk().
 // returns 0 if va is invalid or already mapped, or if
@@ -482,5 +510,63 @@ ismapped(pagetable_t pagetable, uint64 va)
   if (*pte & PTE_V){
     return 1;
   }
+  return 0;
+}
+*/
+
+// 处理一个写页错误 (store page fault)
+// va 是触发错误的虚拟地址
+// 返回 0 表示成功, -1 表示失败
+int
+vmfaultcow(uint64 va)
+{
+  struct proc *p = myproc();
+  pte_t *pte;
+  uint64 pa;
+  uint flags;
+  char *mem;
+
+  if(va >= p->sz)
+    return -1;
+
+  va = PGROUNDDOWN(va);
+  
+  // 找到PTE
+  pte = walk(p->pagetable, va, 0);
+
+  if(pte == 0 || (*pte & PTE_V) == 0)
+    return -1; // 未映射的地址 
+
+  // 检查是否为 COW 页面
+  if((*pte & PTE_C) == 0)
+    return -1; // 不是一个COW页面，是真正的保护错误
+
+  pa = PTE2PA(*pte);
+
+  // 检查引用计数
+  if (get_ref(pa) == 1) {
+    // 只有一个引用，无需复制，直接设为可写
+    flags = (PTE_FLAGS(*pte) | PTE_W) & ~PTE_C;
+    *pte = PA2PTE(pa) | flags;
+    return 0;
+  }
+
+  // 引用 > 1, 需要分配新页面并复制
+  if ((mem = kalloc()) == 0) {
+    return -1; // 内存不足
+  }
+
+  // 复制内容
+  memmove(mem, (void*)pa, PGSIZE);
+
+  // 获取标志, 设为可写, 移除 COW
+  flags = (PTE_FLAGS(*pte) | PTE_W) & ~PTE_C;
+  
+  // 更新 PTE 指向新分配的内存
+  *pte = PA2PTE((uint64)mem) | flags;
+
+  // 减少旧页面的引用计数
+  kfree((void*)pa); 
+
   return 0;
 }

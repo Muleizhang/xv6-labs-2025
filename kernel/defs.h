@@ -57,8 +57,11 @@ void            ireclaim(int);
 
 // kalloc.c
 void*           kalloc(void);
+void            kfreerange(void *);
 void            kfree(void *);
 void            kinit(void);
+int             get_ref(uint64 pa);
+void            increase_ref(uint64 pa);
 
 // log.c
 void            initlog(int, struct superblock*);
@@ -167,8 +170,9 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
-int             ismapped(pagetable_t, uint64);
-uint64          vmfault(pagetable_t, uint64, int);
+//int             ismapped(pagetable_t, uint64);
+//uint64          vmfault(pagetable_t, uint64, int);
+int             vmfaultcow(uint64);
 
 // plic.c
 void            plicinit(void);
