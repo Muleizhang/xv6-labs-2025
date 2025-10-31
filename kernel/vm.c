@@ -352,12 +352,13 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
-    
+    if(va0 >= MAXVA)
+      return -1;
     // 1. 查找 PTE
     pte = walk(pagetable, va0, 0);
 
     // 2. 检查页面是否有效
-    if(pte == 0 || (*pte & PTE_V) == 0)
+    if(pte == 0 || (*pte & PTE_V) == 0 || (*pte & PTE_U) == 0)
       return -1; // 地址未映射
 
     // 3. 核心 COW 逻辑
@@ -472,6 +473,47 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+// kernel/vm.c
+
+// 处理一个懒分配页错误
+// va 是触发错误的虚拟地址
+// 返回 0 表示成功, -1 表示失败
+int
+vmfaultlazy(uint64 va)
+{
+  struct proc *p = myproc();
+  char *mem;
+
+  // 1. 检查地址是否越界
+  if (va >= p->sz)
+    return -1;
+
+  va = PGROUNDDOWN(va);
+
+  // 2. 检查是否已经映射 (如果已映射，就不是懒分配错误)
+  pte_t *pte = walk(p->pagetable, va, 0);
+  if (pte != 0 && (*pte & PTE_V)) {
+    return -1; // 页面已存在，这不是一个懒分配错误
+  }
+
+  // 3. 分配新页面
+  mem = kalloc();
+  if (mem == 0) {
+    return -1; // 内存不足
+  }
+  memset(mem, 0, PGSIZE);
+
+  // 4. 映射新页面 (必须是可读、可写、用户态的)
+  if (mappages(p->pagetable, va, PGSIZE, (uint64)mem, PTE_W | PTE_R | PTE_U) != 0) {
+    kfree(mem);
+    return -1;
+  }
+
+  return 0; // 成功
+}
+
+
 /*
 // allocate and map user memory if process is referencing a page
 // that was lazily allocated in sys_sbrk().

@@ -68,10 +68,29 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else if((r_scause() == 15)){
-    if(vmfaultcow(r_stval()) < 0) {
-      // vmfault 失败 (内存不足或真正的保护错误)
-      printf("usertrap: vmfault failed va=%p\n", (void *)r_stval());
+  } else if(r_scause() == 15) {
+    // Store Page Fault (scause 15)
+    // 可能是 COW 错误，也可能是 Lazy Alloc 错误
+    uint64 va = r_stval();
+    
+    // 尝试作为 COW 错误处理
+    if(vmfaultcow(va) == 0) {
+      // 成功，是 COW 错误且已处理
+    } else if(vmfaultlazy(va) == 0) {
+      // 成功，是 Lazy Alloc 错误且已处理
+    } else {
+      // 两种都不是，是真正的错误
+      printf("usertrap: store fault failed va=%p\n", (void *)va);
+      setkilled(p);
+    }
+  } else if(r_scause() == 13) {
+    // Load Page Fault (scause 13)
+    // 只能是 Lazy Alloc 错误 (COW 页面是可读的)
+    uint64 va = r_stval();
+    
+    if(vmfaultlazy(va) < 0) {
+      // Lazy Alloc 失败
+      printf("usertrap: load fault failed va=%p\n", (void *)va);
       setkilled(p);
     }
   } else {
