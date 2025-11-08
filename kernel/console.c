@@ -50,6 +50,14 @@ struct {
   uint r;  // Read index
   uint w;  // Write index
   uint e;  // Edit index
+  uint x;  // cursor index (w <= x <= e)
+
+#define HISTORY_BUF_SIZE 100
+#define MAX_HISTORY_LEN INPUT_BUF_SIZE
+  char history[HISTORY_BUF_SIZE][MAX_HISTORY_LEN];
+  int history_count;
+  int history_pos;
+  int esc_state;
 } cons;
 
 //
@@ -130,6 +138,54 @@ consoleread(int user_dst, uint64 dst, int n)
   return target - n;
 }
 
+void prev_line(){
+  if(cons.history_pos > 0){
+    cons.history_pos--;
+    // 1. 像 C('U') 一样删除当前行
+    while(cons.e != cons.w && cons.buf[(cons.e-1) % INPUT_BUF_SIZE] != '\n'){
+      cons.e--;
+      consputc(BACKSPACE);
+    }
+    // 2. 复制历史命令到缓冲区并回显
+    char *line = cons.history[cons.history_pos % HISTORY_BUF_SIZE];
+    for(int i = 0; line[i]; i++){
+      if(cons.e - cons.r >= INPUT_BUF_SIZE)
+        break;
+      char ch = line[i];
+      consputc(ch);
+      cons.buf[cons.e++ % INPUT_BUF_SIZE] = ch;
+    }
+  }
+}
+
+void next_line(){
+  if(cons.history_pos + 1 < cons.history_count){
+    cons.history_pos++;
+    // 1. 像 C('U') 一样删除当前行
+    while(cons.e != cons.w && cons.buf[(cons.e-1) % INPUT_BUF_SIZE] != '\n'){
+      cons.e--;
+      consputc(BACKSPACE);
+    }
+    // 2. 复制历史命令到缓冲区并回显
+    char *line = cons.history[cons.history_pos % HISTORY_BUF_SIZE];
+    for(int i = 0; line[i]; i++){
+      if(cons.e - cons.r >= INPUT_BUF_SIZE)
+        break;
+      char ch = line[i];
+      consputc(ch);
+      cons.buf[cons.e++ % INPUT_BUF_SIZE] = ch;
+    }
+  }
+}
+
+int
+strcmp(const char *p, const char *q)
+{
+  while(*p && *p == *q)
+    p++, q++;
+  return (uchar)*p - (uchar)*q;
+}
+
 //
 // the console input interrupt handler.
 // uartintr() calls this for input character.
@@ -140,6 +196,43 @@ void
 consoleintr(int c)
 {
   acquire(&cons.lock);
+
+  switch (cons.esc_state)
+  {
+  case 0:
+    if (c == '\x1b'){
+      cons.esc_state = 1;
+      release(&cons.lock);
+      return;
+    }
+    break;
+  case 1:
+    if (c == '[')
+      cons.esc_state = 2;
+    else
+      cons.esc_state = 0;
+    release(&cons.lock);
+    return;
+  case 2:
+    cons.esc_state = 0;
+    if (c == 'A'){
+      prev_line();
+      release(&cons.lock);
+      return;
+    }
+    else if (c == 'B'){
+      next_line();
+      release(&cons.lock);
+      return;
+    }
+    else if (c == 'C' || c == 'D'){
+      // 忽略左右箭头
+      release(&cons.lock);
+      return;
+    }
+  default:
+    break;
+  }
 
   switch(c){
   case C('P'):  // Print process list.
@@ -172,6 +265,28 @@ consoleintr(int c)
       if(c == '\n' || c == C('D') || cons.e-cons.r == INPUT_BUF_SIZE){
         // wake up consoleread() if a whole line (or end-of-file)
         // has arrived.
+
+        if(c == '\n'){
+          int len = cons.e - cons.w - 1; // -1 是为了去掉 '\n'
+          if(len > 0 && len < MAX_HISTORY_LEN){
+            int idx = cons.history_count % HISTORY_BUF_SIZE;
+            // 复制行
+            int i;
+            for(i = 0; i < len; i++){
+              cons.history[idx][i] = cons.buf[(cons.w + i) % INPUT_BUF_SIZE];
+            }
+            cons.history[idx][i] = 0; // NUL 结尾
+            
+            // 避免连续重复
+            if(cons.history_count == 0 || 
+                strcmp(cons.history[idx], cons.history[(cons.history_count - 1) % HISTORY_BUF_SIZE]) != 0){
+              cons.history_count++;
+            }
+          }
+        }
+        cons.history_pos = cons.history_count;
+        cons.esc_state = 0;
+
         cons.w = cons.e;
         wakeup(&cons.r);
       }
@@ -186,6 +301,12 @@ void
 consoleinit(void)
 {
   initlock(&cons.lock, "cons");
+
+  
+  cons.history_count = 0;
+  cons.history_pos = 0;
+  cons.esc_state = 0;
+  cons.x = 0;
 
   uartinit();
 
