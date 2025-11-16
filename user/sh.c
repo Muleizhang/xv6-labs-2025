@@ -77,6 +77,22 @@ runcmd(struct cmd *cmd)
     if(ecmd->argv[0] == 0)
       exit(1);
     exec(ecmd->argv[0], ecmd->argv);
+
+    if(ecmd->argv[0][0] != '/'){
+      char path[100];
+
+      // make sure the command name will fit in path
+      if(strlen(ecmd->argv[0]) + 2 > sizeof(path)){
+        fprintf(2, "exec: command name too long\n");
+        break;
+      }
+
+      // e.g., "ls" -> "/ls"
+      path[0] = '/';
+      strcpy(path + 1, ecmd->argv[0]);
+      exec(path, ecmd->argv);
+    }
+
     fprintf(2, "exec %s failed\n", ecmd->argv[0]);
     break;
 
